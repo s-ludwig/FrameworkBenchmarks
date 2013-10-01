@@ -41,7 +41,7 @@ shared static this()
 void getJson(HTTPServerRequest req, HTTPServerResponse res)
 {
 	auto msg = Message(helloWorldString);
-	res.writeJsonBody(msg, HTTPStatus.OK, "application/javascript");
+	res.writeJsonBody(msg);
 }
 
 void getDB(HTTPServerRequest req, HTTPServerResponse res)
