@@ -1,0 +1,7 @@
+{
+	"name": "techempower-vibed",
+	"dependencies": {
+		"vibe-d": "~master",
+		"mysql-native": "~master"
+	}
+}
