@@ -16,7 +16,7 @@
       "framework": "vibe.d",
       "language": "D",
       "orm": "Raw",
-      "platform": "D",
+      "platform": "vibe.d",
       "webserver": "None",
       "os": "Linux",
       "database_os": "Linux",
