@@ -1,16 +1,19 @@
-import mysql.db, std.array, vibe.d;
+import mysql.db, std.array, std.random, vibe.d;
 
 
 struct Message { string message; }
-struct World { ushort id; ushort randomNumber; }
-struct Fortune { ushort id; string message; }
+struct World { uint id; int randomNumber; }
+struct Fortune { uint id; string message; }
 
 
-enum connectionString = "benchmarkdbuser:benchmarkdbpass@localhost:3306/hello_world?charset=utf8";
+enum connectionString = "host=localhost;port=3306;user=benchmarkdbuser;pwd=benchmarkdbpass;db=hello_world";
+Connection conn;
+
 __gshared Command worldSelectCommand;
 __gshared Command worldUpdateCommand;
 __gshared Command fortuneSelectCommand;
 enum worldRowCount = 10000;
+enum worldRandomMax = 10000;
 enum helloWorldString = "Hello, World!";
 
 
@@ -18,24 +21,39 @@ shared static this()
 {
 	enableWorkerThreads();
 
-	// TODO:
-	// ...
-	//worldSelectCommand = Command(conn, "SELECT id, randomNumber FROM World WHERE id = ?");
-	//worldUpdateCommand = Command(conn, "UPDATE World SET randomNumber = ? WHERE id = ?");
-	//fortuneSelectCommand = Command(conn, "SELECT id, message FROM Fortune;");
-	// ...
+	MysqlDB db = new MysqlDB(connectionString);
+	conn = db.lockConnection();
+	scope(exit) conn.close();
+
+	worldSelectCommand = Command(conn, "SELECT id, randomNumber FROM World WHERE id = ?");
+	worldUpdateCommand = Command(conn, "UPDATE World SET randomNumber = ? WHERE id = ?");
+	fortuneSelectCommand = Command(conn, "SELECT id, message FROM Fortune;");
 
 	auto router = new URLRouter;
 	router.get("/json", &getJson);
 	router.get("/db", &getDB);
 	router.get("/queries", &getQueries);
-	router.get("/fortune", &getFortune);
-	router.get("/update", &getUpdate);
+	router.get("/fortunes", &getFortunes);
+	router.get("/updates", &getUpdates);
 	router.get("/plaintext", &getPlaintext);
 
 	auto settings = new HTTPServerSettings;
 	settings.port = 8080;
 	listenHTTP(settings, router);
+}
+
+World[] queryRandomWorlds(int n)
+{
+	auto world = new World[n];
+	//TODO: shouldnt prepare be put somewhere else (to run just once)?
+	worldSelectCommand.prepare();
+	foreach (i; 0 .. n) {
+		//TODO: can this be simplified?
+		int id = uniform(0, worldRowCount) + 1;
+		worldSelectCommand.bindParameter(id, 0);
+		worldSelectCommand.execPreparedTuple(world[i].id, world[i].randomNumber);
+	}
+	return world;
 }
 
 void getJson(HTTPServerRequest req, HTTPServerResponse res)
@@ -46,34 +64,31 @@ void getJson(HTTPServerRequest req, HTTPServerResponse res)
 
 void getDB(HTTPServerRequest req, HTTPServerResponse res)
 {
-	World world;
-	// TODO: query DB using worldSelectCommand and id set to uniform(0, worldRowCount)+1, store result in world
-	res.writeJsonBody(world);
+	res.writeJsonBody(queryRandomWorlds(1)[0]);
 }
 
 void getQueries(HTTPServerRequest req, HTTPServerResponse res)
 {
 	auto nstr = req.query.get("queries", null);
 	int n = nstr.length ? nstr.to!int : 1;
-
-	if (n <= 1) {
-		getDB(req, res);
-		return;
-	}
-
-	auto world = new World[n];
-	foreach (i; 0 .. n) {
-		// TODO query DB using worldSelectCommand and id set to uniform(0, worldRowCount)+1, store result in world[i]
-	}
-
-	res.writeJsonBody(world);
+	if (n<1) n = 1;
+	if (n>500) n = 500;
+	
+	res.writeJsonBody(queryRandomWorlds(n));
 }
 
 
-void getFortune(HTTPServerRequest req, HTTPServerResponse res)
+void getFortunes(HTTPServerRequest req, HTTPServerResponse res)
 {
 	auto fortunesApp = appender!(Fortune[]);
-	// TODO: execute fortuneSelectCommand and store results into fortunesApp
+	
+	ResultSet ret = fortuneSelectCommand.execSQLResult();
+	while (!ret.empty()) {
+		//TODO maybe it would be better to use ret.front.toStruct!Fortune(x) somehow?
+		fortunesApp.put(Fortune(ret.front.opIndex(0).get!(uint), ret.front.opIndex(1).get!(string)));
+		ret.popFront();
+	}
+	
 	fortunesApp.put(Fortune(0, "Additional fortune added at request time."));
 
 	auto fortunes = fortunesApp.data;
@@ -82,32 +97,25 @@ void getFortune(HTTPServerRequest req, HTTPServerResponse res)
 	res.render!("fortunes.dt", fortunes);
 }
 
-void getUpdate(HTTPServerRequest req, HTTPServerResponse res)
+void getUpdates(HTTPServerRequest req, HTTPServerResponse res)
 {
 	auto nstr = req.query.get("queries", null);
 	int n = nstr.length ? nstr.to!int : 1;
+	if (n<1) n = 1;
+	if (n>500) n = 500;
 
-	if (n <= 1)	{
-		World world;
-		// TODO (go code):
-		// worldStatement.QueryRow(rand.Intn(worldRowCount)+1).Scan(&world.Id, &world.RandomNumber)
-		// world.RandomNumber = uint16(rand.Intn(worldRowCount) + 1)
-		// updateStatement.Exec(world.RandomNumber, world.Id)		*/
-		res.writeJsonBody(world);
-	} else {
-		auto world = new World[n];
-		foreach (i; 0 .. n) {
-			// TODO (go code):
-			// if err := worldStatement.QueryRow(rand.Intn(worldRowCount)+1).Scan(&world[i].Id, &world[i].RandomNumber); err != nil {
-			// 	log.Fatalf("Error scanning world row: %s", err.Error())
-			// }
-			// world[i].RandomNumber = uint16(rand.Intn(worldRowCount) + 1)
-			// if _, err := updateStatement.Exec(world[i].RandomNumber, world[i].Id); err != nil {
-			// 	log.Fatalf("Error updating world row: %s", err.Error())
-			// }
-		}
-		res.writeJsonBody(world);
-	}
+	World[] world = queryRandomWorlds(n);
+	//TODO: where to put prepare?
+	worldUpdateCommand.prepare();
+	foreach (i; 0 .. n) {
+		world[i].randomNumber = uniform(0, worldRandomMax) + 1;
+		worldUpdateCommand.bindParameter(world[i].randomNumber, 0);
+		worldUpdateCommand.bindParameter(world[i].id, 1);
+		ulong ra;
+		worldUpdateCommand.execPrepared(ra);
+		assert(ra == 1);
+ 	}
+	res.writeJsonBody(world);
 }
 
 void getPlaintext(HTTPServerRequest req, HTTPServerResponse res)
