@@ -14,6 +14,10 @@
   	{
   		"name": "mongodb",
   		"mainSourceFile": "source/mongodb.d"
-  	}
+  	},
+	{
+		"name": "redis",
+		"mainSourceFile": "source/redis.d"
+	}
   ]
 }

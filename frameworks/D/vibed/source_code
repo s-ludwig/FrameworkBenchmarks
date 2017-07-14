@@ -1,1 +1,2 @@
 ./vibed/source/mongodb.d
+./vibed/source/redis.d
